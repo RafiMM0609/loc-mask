@@ -200,6 +200,26 @@ def test_run_command_mask_wrapper_masks_env_values_including_hosts() -> None:
     )
     assert proc.returncode == 0
     assert "smtp.gmail.com" not in proc.stdout
-    assert "SMTP_HOST=<<PII:ENV_VALUE_1>>" in proc.stdout
+    assert "SMTP_HOST=<<PII:" in proc.stdout
     assert "PORT=587" in proc.stdout
     assert "NODE_ENV=production" in proc.stdout
+
+
+def test_run_command_mask_wrapper_detects_env_helper_script_names() -> None:
+    import base64
+
+    cmd = "Write-Output '# C:/backup-code/check_env.py'; Write-Output 'CUSTOM_GATEWAY=gw.internal.local'"
+    encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    env = os.environ.copy()
+    env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
+
+    proc = subprocess.run(
+        [sys.executable, str(RUN_CMD_WRAPPER), encoded],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 0
+    assert "gw.internal.local" not in proc.stdout
+    assert "CUSTOM_GATEWAY=<<PII:ENV_VALUE_1>>" in proc.stdout

@@ -118,14 +118,14 @@ CODE_EXPR_PREFIXES = (
 
 BEARER_TOKEN_RE = re.compile(r"(?i)\b(?:Bearer|Basic)\s+(?P<val>[A-Za-z0-9._~+/=-]{20,})")
 SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b[A-Za-z0-9_]*(?:password|passwd|pass|pwd|client_secret|api_secret|secret_key|secret|auth_token|access_token|refresh_token|token|api_key|apikey|access_key|private_key)\b"
+    r"(?i)\b[A-Za-z0-9_]*(?:password|passwd|pass|pwd|client_secret|api_secret|secret_key|secret|auth_token|access_token|refresh_token|token|api_key|apikey|access_key|private_key|smtp_host|smtp_user|db_host|db_user)\b"
     r"\s*(?:=|:)\s*(?P<quote>['\"]?)(?P<val>[^\s'\"`,;}{)(]{8,})(?P=quote)"
 )
 
 
 def should_skip_secret_assignment(val: str, following_char: str, allowlist: set[str]) -> bool:
     low = val.lower()
-    if low in allowlist:
+    if low in allowlist or low in {"localhost", "127.0.0.1", "0.0.0.0"}:
         return True
     if val.startswith(("$", "{{", "<")) or PLACEHOLDER_RE.match(val):
         return True

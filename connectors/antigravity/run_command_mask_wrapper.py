@@ -15,7 +15,10 @@ from pathlib import Path
 
 PII_SHIELD_URL = os.environ.get("PII_SHIELD_URL", "http://127.0.0.1:8787").rstrip("/")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ENV_COMMAND_RE = re.compile(r"(?:^|[\s'\"/\\])\.env(?:\.[A-Za-z0-9_.-]+)?(?:$|[\s'\"])", re.IGNORECASE)
+ENV_COMMAND_RE = re.compile(
+    r"(?:^|[\s'\"/\\])(?:\.env(?:\.[A-Za-z0-9_.-]+)?|[A-Za-z0-9_.-]*env[A-Za-z0-9_.-]*\.(?:py|ps1|sh|js|ts|cmd|bat))(?:$|[\s'\"])",
+    re.IGNORECASE,
+)
 ENV_LINE_RE = re.compile(r"^(?P<prefix>\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*)(?P<val>.+?)\s*$")
 SAFE_ENV_LITERALS = {"true", "false", "null", "none", "undefined", "development", "production", "staging", "local", "test"}
 

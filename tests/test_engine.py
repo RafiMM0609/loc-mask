@@ -37,6 +37,7 @@ def engine() -> MaskingEngine:
         ("password = 'RealProdPassword!99'", "SECRET_ASSIGNMENT"),
         ("DB_PASSWORD=RealDatabaseSecret99", "SECRET_ASSIGNMENT"),
         ("SMTP_SECRET=MailGatewaySecret88", "SECRET_ASSIGNMENT"),
+        ("SMTP_HOST=smtp.gmail.com", "SECRET_ASSIGNMENT"),
         ("3273011508950001", "ID_NIK"),
         ("081234567890", "ID_PHONE"),
         ("+62 812-3456-7890", "ID_PHONE"),
