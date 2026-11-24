@@ -12,6 +12,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ANTIGRAVITY_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_guard.py"
+ANTIGRAVITY_TOOL_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_tool_guard.py"
+RUN_CMD_WRAPPER = PROJECT_ROOT / "connectors" / "antigravity" / "run_command_mask_wrapper.py"
 CODEX_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_hook_guard.py"
 
 
@@ -104,3 +106,78 @@ def test_codex_hook_guard_exit_codes() -> None:
     )
     assert blocked.returncode == 2
     assert "GITHUB_TOKEN" in blocked.stderr
+
+
+def test_antigravity_tool_guard_rewrites_run_command_and_skips_daemon() -> None:
+    res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "Write-Output 'hello'"},
+            }
+        },
+    )
+    assert res.returncode == 0
+    data = json.loads(res.stdout)
+    assert data["decision"] == "allow"
+    assert "run_command_mask_wrapper.py" in data["overwrite"]["CommandLine"]
+
+    daemon_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "toolCall": {
+                "name": "run_command",
+                "args": {"CommandLine": "uvicorn app:app", "IsDaemon": True},
+            }
+        },
+    )
+    assert daemon_res.returncode == 0
+    assert json.loads(daemon_res.stdout) == {"decision": "allow"}
+
+
+def test_run_command_mask_wrapper_masks_stdout_and_preserves_exit_code() -> None:
+    import base64
+
+    secret = "sk-proj-wrappersecret1234567890abcd"
+    cmd = f"Write-Output 'API_KEY={secret}'; exit 7"
+    encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    env = os.environ.copy()
+    env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
+
+    proc = subprocess.run(
+        [sys.executable, str(RUN_CMD_WRAPPER), encoded],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 7
+    assert secret not in proc.stdout
+    assert "<<PII:OPENAI_API_KEY_" in proc.stdout
+
+
+def test_antigravity_tool_guard_redirects_sensitive_file_reads_to_run_command() -> None:
+    env_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "read_file", "args": {"Path": "C:/app/.env"}}},
+    )
+    assert env_res.returncode == 0
+    env_data = json.loads(env_res.stdout)
+    assert env_data["decision"] == "deny"
+    assert ".env" in env_data["reason"]
+    assert "run_command" in env_data["reason"]
+
+    key_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "view_file", "args": {"AbsolutePath": "C:/certs/private.key"}}},
+    )
+    assert key_res.returncode == 0
+    assert json.loads(key_res.stdout)["decision"] == "deny"
+
+    safe_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "read_file", "args": {"Path": "C:/app/.env.example"}}},
+    )
+    assert safe_res.returncode == 0
+    assert json.loads(safe_res.stdout) == {"decision": "allow"}

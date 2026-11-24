@@ -16,6 +16,7 @@ HOME = Path.home()
 SHIELD_ROOT = Path(__file__).resolve().parent.parent
 
 ANTIGRAVITY_HOOKS = HOME / ".gemini" / "config" / "hooks.json"
+T3_ANTIGRAVITY_DIR = HOME / ".t3" / "userdata" / "providers" / "antigravity"
 CODEX_CONFIG = HOME / ".codex" / "config.toml"
 PI_EXT_DIR = HOME / ".pi" / "agent" / "extensions"
 PI_EXT_TARGET = PI_EXT_DIR / "pii-shield.ts"
@@ -45,14 +46,30 @@ def _latest_backup(path: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
+def _antigravity_hook_targets() -> list[Path]:
+    targets = [ANTIGRAVITY_HOOKS]
+    if T3_ANTIGRAVITY_DIR.exists():
+        for provider_dir in sorted(T3_ANTIGRAVITY_DIR.iterdir()):
+            if provider_dir.is_dir():
+                targets.append(provider_dir / "config" / "hooks.json")
+    return targets
+
+
+def _is_antigravity_active(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        ag_data = json.loads(path.read_text(encoding="utf-8"))
+        return "pii-shield-guard" in ag_data
+    except json.JSONDecodeError:
+        return False
+
+
 def show_status() -> int:
-    ag_installed = False
-    if ANTIGRAVITY_HOOKS.exists():
-        try:
-            ag_data = json.loads(ANTIGRAVITY_HOOKS.read_text(encoding="utf-8"))
-            ag_installed = "pii-shield-guard" in ag_data
-        except json.JSONDecodeError:
-            ag_installed = False
+    for target in _antigravity_hook_targets():
+        label = "Antigravity" if target == ANTIGRAVITY_HOOKS else "Antigravity (T3)"
+        state = "ACTIVE" if _is_antigravity_active(target) else "NOT INSTALLED"
+        print(f"{label:<16} ({target}): {state}")
 
     codex_installed = False
     if CODEX_CONFIG.exists():
@@ -60,27 +77,27 @@ def show_status() -> int:
 
     pi_installed = PI_EXT_TARGET.exists()
 
-    print(f"Antigravity ({ANTIGRAVITY_HOOKS}): {'ACTIVE' if ag_installed else 'NOT INSTALLED'}")
-    print(f"Codex CLI   ({CODEX_CONFIG}): {'ACTIVE' if codex_installed else 'NOT INSTALLED'}")
-    print(f"Pi dev CLI  ({PI_EXT_TARGET}): {'ACTIVE' if pi_installed else 'NOT INSTALLED'}")
+    print(f"{'Codex CLI':<16} ({CODEX_CONFIG}): {'ACTIVE' if codex_installed else 'NOT INSTALLED'}")
+    print(f"{'Pi dev CLI':<16} ({PI_EXT_TARGET}): {'ACTIVE' if pi_installed else 'NOT INSTALLED'}")
     return 0
 
 
 def apply_antigravity(dry_run: bool) -> None:
     desired_entry = json.loads(ANTIGRAVITY_EXAMPLE.read_text(encoding="utf-8"))
-    existing = {}
-    if ANTIGRAVITY_HOOKS.exists():
-        existing = json.loads(ANTIGRAVITY_HOOKS.read_text(encoding="utf-8"))
-    existing.update(desired_entry)
+    for target in _antigravity_hook_targets():
+        existing = {}
+        if target.exists():
+            existing = json.loads(target.read_text(encoding="utf-8"))
+        existing.update(desired_entry)
 
-    if dry_run:
-        print(f"[DRY-RUN] Akan mengupdate {ANTIGRAVITY_HOOKS} dengan key 'pii-shield-guard'")
-        return
+        if dry_run:
+            print(f"[DRY-RUN] Akan mengupdate {target} dengan key 'pii-shield-guard'")
+            continue
 
-    ANTIGRAVITY_HOOKS.parent.mkdir(parents=True, exist_ok=True)
-    bak = _backup(ANTIGRAVITY_HOOKS)
-    ANTIGRAVITY_HOOKS.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-    print(f"[OK] Antigravity hook terpasang di {ANTIGRAVITY_HOOKS}" + (f" (backup: {bak})" if bak else ""))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        bak = _backup(target)
+        target.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+        print(f"[OK] Antigravity hook terpasang di {target}" + (f" (backup: {bak})" if bak else ""))
 
 
 def apply_codex(dry_run: bool) -> None:
@@ -112,20 +129,22 @@ def apply_pi(dry_run: bool) -> None:
 
 
 def rollback_all() -> None:
-    if ANTIGRAVITY_HOOKS.exists():
-        bak = _latest_backup(ANTIGRAVITY_HOOKS)
+    for target in _antigravity_hook_targets():
+        if not target.exists():
+            continue
+        bak = _latest_backup(target)
         if bak:
-            shutil.copy2(bak, ANTIGRAVITY_HOOKS)
+            shutil.copy2(bak, target)
             print(f"[OK] Rollback Antigravity dari {bak}")
         else:
-            data = json.loads(ANTIGRAVITY_HOOKS.read_text(encoding="utf-8"))
+            data = json.loads(target.read_text(encoding="utf-8"))
             if "pii-shield-guard" in data:
                 data.pop("pii-shield-guard", None)
                 if data:
-                    ANTIGRAVITY_HOOKS.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                    target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
                 else:
-                    ANTIGRAVITY_HOOKS.unlink()
-                print(f"[OK] Hapus pii-shield-guard dari {ANTIGRAVITY_HOOKS}")
+                    target.unlink()
+                print(f"[OK] Hapus pii-shield-guard dari {target}")
 
     if CODEX_CONFIG.exists():
         bak = _latest_backup(CODEX_CONFIG)

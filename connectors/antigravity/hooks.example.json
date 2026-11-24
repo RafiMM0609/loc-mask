@@ -7,6 +7,18 @@
         "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/antigravity/antigravity_guard.py",
         "timeout": 5
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "run_command|read_file|view_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/antigravity/antigravity_tool_guard.py",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
