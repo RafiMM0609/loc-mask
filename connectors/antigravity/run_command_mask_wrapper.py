@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,9 @@ from pathlib import Path
 
 PII_SHIELD_URL = os.environ.get("PII_SHIELD_URL", "http://127.0.0.1:8787").rstrip("/")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+ENV_COMMAND_RE = re.compile(r"(?:^|[\s'\"/\\])\.env(?:\.[A-Za-z0-9_.-]+)?(?:$|[\s'\"])", re.IGNORECASE)
+ENV_LINE_RE = re.compile(r"^(?P<prefix>\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*)(?P<val>.+?)\s*$")
+SAFE_ENV_LITERALS = {"true", "false", "null", "none", "undefined", "development", "production", "staging", "local", "test"}
 
 
 def _mask_via_server(text: str, session_id: str) -> str | None:
@@ -62,13 +66,46 @@ def _mask_offline_fallback(text: str) -> str:
     return out
 
 
-def _mask_output(text: str, session_id: str) -> str:
+def _mask_env_lines(text: str) -> str:
+    if not text:
+        return text
+    out_lines: list[str] = []
+    idx = 0
+    for line in text.splitlines(keepends=True):
+        ending = ""
+        if line.endswith("\r\n"):
+            body, ending = line[:-2], "\r\n"
+        elif line.endswith("\n"):
+            body, ending = line[:-1], "\n"
+        else:
+            body = line
+
+        m = ENV_LINE_RE.match(body)
+        if m:
+            val = m.group("val").strip()
+            unquoted = val.strip("'\"")
+            if (
+                unquoted
+                and "<<PII:" not in val
+                and unquoted.lower() not in SAFE_ENV_LITERALS
+                and not unquoted.isdigit()
+            ):
+                idx += 1
+                out_lines.append(f"{m.group('prefix')}<<PII:ENV_VALUE_{idx}>>{ending}")
+                continue
+        out_lines.append(line)
+    return "".join(out_lines)
+
+
+def _mask_output(text: str, session_id: str, is_env_command: bool = False) -> str:
     if not text:
         return text
     masked = _mask_via_server(text, session_id=session_id)
-    if masked is not None:
-        return masked
-    return _mask_offline_fallback(text)
+    if masked is None:
+        masked = _mask_offline_fallback(text)
+    if is_env_command:
+        masked = _mask_env_lines(masked)
+    return masked
 
 
 def _run_original_command(command_line: str) -> subprocess.CompletedProcess[bytes]:
@@ -95,16 +132,17 @@ def main() -> int:
         return 2
 
     session_id = os.environ.get("PII_SHIELD_SESSION", "agy-run-command")
+    is_env_cmd = bool(ENV_COMMAND_RE.search(command_line))
     proc = _run_original_command(command_line)
 
     stdout_text = proc.stdout.decode("utf-8", errors="replace") if proc.stdout else ""
     stderr_text = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
 
     if stdout_text:
-        sys.stdout.write(_mask_output(stdout_text, session_id=session_id))
+        sys.stdout.write(_mask_output(stdout_text, session_id=session_id, is_env_command=is_env_cmd))
         sys.stdout.flush()
     if stderr_text:
-        sys.stderr.write(_mask_output(stderr_text, session_id=session_id))
+        sys.stderr.write(_mask_output(stderr_text, session_id=session_id, is_env_command=is_env_cmd))
         sys.stderr.flush()
 
     return int(proc.returncode)

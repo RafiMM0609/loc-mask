@@ -1,62 +1,63 @@
 # PII-Shield
 
-Server masking lokal berbasis Python (**Microsoft Presidio + Secret Pattern Recognizers**) yang berjalan di `http://127.0.0.1:8787` untuk melindungi **Antigravity**, **Codex CLI**, dan **Pi dev CLI** dari kebocoran secrets maupun data pribadi (PII).
+Server masking lokal Python (**Microsoft Presidio + Secret Pattern Recognizers**) di `http://127.0.0.1:8787` untuk melindungi **Antigravity (`agy`)**, **T3 Code**, **Codex CLI**, dan **Pi dev CLI** dari kebocoran secrets & PII.
 
-## Fitur Utama
+## Mekanisme Proteksi
 
-1. **Hybrid Protection:**
-   - **Codex CLI & Pi dev CLI:** Auto-Masking & Unmasking **2 arah** (`nilai asli` -> `<<PII:TYPE_N>>` -> `nilai asli`) termasuk dukungan **SSE streaming** agar output AI tetap relevan tanpa mengirim rahasia asli ke cloud.
-   - **Antigravity:** **Safety Gate** (`PreInvocation` hook) yang langsung memblokir pengiriman jika terdeteksi data sensitif di prompt, dengan fallback offline pure-regex jika server sedang mati.
-2. **Deteksi Default:**
-   - **Secrets:** OpenAI, Anthropic, Google, AWS, GitHub, GitLab, Slack, Stripe, Telegram, Midtrans, Xendit, npm/PyPI/HF token, JWT, Bearer/Basic token, DB connection URI (`postgres://`, `mysql://`, `mongodb://`, dll.), PEM Private Key, serta assignment `password`/`secret`/`token` (kecuali dummy allowlist).
-   - **PII Utama:** NIK 16 digit Indonesia, Nomor HP Indonesia (`08...`/`+628...`), Email, Kartu Kredit (Luhn check).
-   - **Konteks Koding Aman:** Nama orang (`PERSON`), lokasi, dan IP lokal (`localhost`, `192.168.x.x`, `10.x.x.x`) **tidak** dimasking secara default.
-3. **Zero Disk Leak:** Mapping vault 2 arah hanya disimpan di memori RAM selama server berjalan.
+- **Antigravity (`agy`) & T3 Code:**
+  - **`PreInvocation` Safety Gate** (`antigravity_guard.py`): Memblokir prompt user jika mengandung secret/PII (otomatis *fallback* ke regex offline jika server mati).
+  - **`PreToolUse` Tool Guard** (`antigravity_tool_guard.py` + `run_command_mask_wrapper.py`): Memasking `stdout`/`stderr` dari `run_command` sebelum masuk ke model, serta mengalihkan `read_file`/`view_file` atas file sensitif (`.env`, `*.pem`, `*.key`, `credentials.json`, dll.) agar dibaca lewat `run_command`.
+- **Codex CLI & Pi dev CLI:**
+  - **Auto-Mask & Unmask 2 Arah** (`nilai asli` ↔ `<<PII:TYPE_N>>`) lewat reverse proxy (`/chatgpt-backend/`, `/openai/`) dan extension Pi (`pii-shield.ts`), termasuk SSE streaming.
+- **Zero Disk Leak & Konteks Aman:** Vault 2 arah hanya disimpan di RAM; `PERSON`, `LOCATION`, dan IP lokal tidak dimasking secara default.
 
 ---
 
-## Cara Menjalankan Server (Manual)
+## Menjalankan Server
 
 ```cmd
 cd ~/pii-shield
 
-:: Jalankan di background
-pii-shield.cmd start
-
-:: Cek status server
-pii-shield.cmd status
-
-:: Uji masking & unmasking
-pii-shield.cmd test "API key saya sk-proj-abc123456789012345678901 dan NIK 3273011508950001"
-
-:: Hentikan server
-pii-shield.cmd stop
+pii-shield.cmd start    :: Jalankan server di background
+pii-shield.cmd status   :: Cek status & jumlah placeholder aktif
+pii-shield.cmd test "API key sk-proj-abc123456789012345678901 dan NIK 3273011508950001"
+pii-shield.cmd stop     :: Hentikan server
 ```
 
 Atau klik ganda `start-server.cmd` / `stop-server.cmd`.
 
 ---
 
-## Integrasi ke Agent (Siap Review di Folder `connectors/`)
-
-**Belum ada konfigurasi aktif yang diubah.** Anda bisa meninjau file di `connectors/` terlebih dahulu:
-
-- **Antigravity:** `connectors/antigravity/antigravity_guard.py` & `hooks.example.json`
-- **Codex CLI:** `connectors/codex/config.example.toml` (menggunakan `chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"` untuk mode login ChatGPT Anda)
-- **Pi dev CLI:** `connectors/pi/pii-shield.ts` (TypeScript Extension untuk `~/.pi/agent/extensions/pii-shield.ts`, bekerja di semua provider termasuk `opencode-go`)
-
-### Mengaktifkan Secara Otomatis (Setelah Anda Review)
+## Cara Pakai per Tool
 
 ```cmd
-:: Cek status saat ini
+:: Cek status instalasi connector
 .venv\Scripts\python.exe connectors\install_connectors.py --status
 
-:: Simulasi dulu tanpa mengubah file
+:: Simulasi tanpa mengubah config
 .venv\Scripts\python.exe connectors\install_connectors.py --apply all --dry-run
+```
 
-:: Pasang semua (otomatis membuat backup .bak sebelum mengubah config)
+### 1. Antigravity (`agy`) & T3 Code
+```cmd
+.venv\Scripts\python.exe connectors\install_connectors.py --apply antigravity
+```
+Perintah ini otomatis memasang `hooks.json` ke `~/.gemini/config/hooks.json` (`agy` CLI/IDE) dan seluruh provider Antigravity di T3 Code (`~/.t3/userdata/providers/antigravity/*/config/hooks.json`).
+- **Prompt sensitif** langsung diblokir sebelum dikirim ke model.
+- **Output `run_command`** otomatis dimasking (`<<PII:...>>`).
+- **Akses baca `.env` / file kunci** lewat `read_file`/`view_file` otomatis ditolak dan diarahkan agar memakai `run_command`.
+- *Catatan:* Untuk thread T3 Code yang sudah berjalan sebelum hook dipasang, buka thread baru agar `hooks.json` termuat.
+
+### 2. Codex CLI & Pi dev CLI
+```cmd
+.venv\Scripts\python.exe connectors\install_connectors.py --apply codex
+.venv\Scripts\python.exe connectors\install_connectors.py --apply pi
+:: atau pasang semua sekaligus:
 .venv\Scripts\python.exe connectors\install_connectors.py --apply all
+```
+Pastikan server `pii-shield` dalam status `RUNNING` sebelum memakai proxy Codex CLI (`chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"`).
 
-:: Jika ingin batal / kembali ke config awal:
+### Rollback
+```cmd
 .venv\Scripts\python.exe connectors\install_connectors.py --rollback
 ```

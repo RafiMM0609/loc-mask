@@ -181,3 +181,25 @@ def test_antigravity_tool_guard_redirects_sensitive_file_reads_to_run_command() 
     )
     assert safe_res.returncode == 0
     assert json.loads(safe_res.stdout) == {"decision": "allow"}
+
+
+def test_run_command_mask_wrapper_masks_env_values_including_hosts() -> None:
+    import base64
+
+    cmd = "Write-Output '# reading .env'; Write-Output 'SMTP_HOST=smtp.gmail.com'; Write-Output 'PORT=587'; Write-Output 'NODE_ENV=production'"
+    encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    env = os.environ.copy()
+    env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
+
+    proc = subprocess.run(
+        [sys.executable, str(RUN_CMD_WRAPPER), encoded],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 0
+    assert "smtp.gmail.com" not in proc.stdout
+    assert "SMTP_HOST=<<PII:ENV_VALUE_1>>" in proc.stdout
+    assert "PORT=587" in proc.stdout
+    assert "NODE_ENV=production" in proc.stdout

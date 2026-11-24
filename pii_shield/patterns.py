@@ -118,7 +118,7 @@ CODE_EXPR_PREFIXES = (
 
 BEARER_TOKEN_RE = re.compile(r"(?i)\b(?:Bearer|Basic)\s+(?P<val>[A-Za-z0-9._~+/=-]{20,})")
 SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b(?:password|passwd|pwd|client_secret|api_secret|secret_key|auth_token|access_token|refresh_token|private_key)\b"
+    r"(?i)\b[A-Za-z0-9_]*(?:password|passwd|pass|pwd|client_secret|api_secret|secret_key|secret|auth_token|access_token|refresh_token|token|api_key|apikey|access_key|private_key)\b"
     r"\s*(?:=|:)\s*(?P<quote>['\"]?)(?P<val>[^\s'\"`,;}{)(]{8,})(?P=quote)"
 )
 

@@ -35,6 +35,8 @@ def engine() -> MaskingEngine:
         ("Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9_token12345", "BEARER_TOKEN"),
         ("postgres://dbadmin:SuperSecretPass99@db.internal:5432/prod_db", "DB_URI"),
         ("password = 'RealProdPassword!99'", "SECRET_ASSIGNMENT"),
+        ("DB_PASSWORD=RealDatabaseSecret99", "SECRET_ASSIGNMENT"),
+        ("SMTP_SECRET=MailGatewaySecret88", "SECRET_ASSIGNMENT"),
         ("3273011508950001", "ID_NIK"),
         ("081234567890", "ID_PHONE"),
         ("+62 812-3456-7890", "ID_PHONE"),
