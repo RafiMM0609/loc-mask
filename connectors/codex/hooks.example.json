@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/codex/codex_hook_guard.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

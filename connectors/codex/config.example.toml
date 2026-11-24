@@ -1,0 +1,8 @@
+# Tambahkan salah satu baris di bawah ini ke bagian paling atas
+# ~/.codex/config.toml (sebelum section [tui] / [windows] / [mcp_servers])
+#
+# 1) Untuk akun login ChatGPT (auth_mode = "chatgpt", konfigurasi Anda saat ini):
+chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"
+
+# 2) (Opsional) Jika suatu saat Anda memakai OpenAI API Key (OPENAI_API_KEY):
+# openai_base_url = "http://127.0.0.1:8787/openai/v1"

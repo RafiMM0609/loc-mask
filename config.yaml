@@ -1,0 +1,38 @@
+server:
+  host: "127.0.0.1"
+  port: 8787
+  log_level: "info"
+
+masking:
+  detect_secrets: true
+  detect_pii: true
+  detect_person_and_ip: false
+  placeholder_prefix: "<<PII:"
+  placeholder_suffix: ">>"
+  score_threshold: 0.45
+
+allowlist:
+  values:
+    - "changeme"
+    - "password"
+    - "password123"
+    - "12345678"
+    - "1234567890"
+    - "your_api_key_here"
+    - "your-api-key-here"
+    - "sk-test-placeholder"
+    - "example@example.com"
+    - "test@example.com"
+    - "user@example.com"
+    - "admin@example.com"
+    - "null"
+    - "none"
+    - "true"
+    - "false"
+    - "undefined"
+
+# Optional custom regex rules:
+# - name: "INTERNAL_PROJECT_CODE"
+#   pattern: "\\bPRJ-[0-9]{4}\\b"
+#   score: 0.9
+custom_patterns: []

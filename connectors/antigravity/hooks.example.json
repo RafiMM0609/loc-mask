@@ -1,0 +1,12 @@
+{
+  "pii-shield-guard": {
+    "enabled": true,
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/antigravity/antigravity_guard.py",
+        "timeout": 5
+      }
+    ]
+  }
+}
