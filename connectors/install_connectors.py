@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -82,8 +83,30 @@ def show_status() -> int:
     return 0
 
 
+def _resolve_venv_python() -> Path:
+    for candidate in (
+        SHIELD_ROOT / ".venv" / "Scripts" / "python.exe",
+        SHIELD_ROOT / ".venv" / "bin" / "python",
+    ):
+        if candidate.exists():
+            return candidate
+    return Path(sys.executable)
+
+
+def _load_antigravity_entry() -> dict:
+    raw = ANTIGRAVITY_EXAMPLE.read_text(encoding="utf-8")
+    python_exe = _resolve_venv_python().as_posix()
+    shield_root = SHIELD_ROOT.as_posix()
+    resolved = (
+        raw.replace("~/pii-shield/.venv/bin/python", python_exe)
+        .replace("~/pii-shield/.venv/Scripts/python.exe", python_exe)
+        .replace("~/pii-shield", shield_root)
+    )
+    return json.loads(resolved)
+
+
 def apply_antigravity(dry_run: bool) -> None:
-    desired_entry = json.loads(ANTIGRAVITY_EXAMPLE.read_text(encoding="utf-8"))
+    desired_entry = _load_antigravity_entry()
     for target in _antigravity_hook_targets():
         existing = {}
         if target.exists():

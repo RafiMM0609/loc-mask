@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 WRAPPER_SCRIPT = Path(__file__).resolve().with_name("run_command_mask_wrapper.py")
-PYTHON_EXE = Path(sys.executable).resolve()
+PYTHON_EXE = Path(sys.executable)
 
 SENSITIVE_EXACT_NAMES = {
     ".env",

@@ -15,7 +15,7 @@ This repository provides **PII-Shield**, a local Python masking server (`http://
    ```bash
    .venv/Scripts/python.exe -m spacy download en_core_web_sm
    ```
-4. Update the absolute Python and script paths in `connectors/antigravity/hooks.example.json` to match the local clone directory if the repo is not at `~/pii-shield`.
+4. `connectors/antigravity/hooks.example.json` uses `~/pii-shield` placeholders; running `connectors/install_connectors.py --apply` automatically resolves the local `.venv` Python and repo paths for Windows, Linux, and macOS.
 5. Run the test suite to verify everything passes before applying any connector:
    ```bash
    .venv/Scripts/pytest.exe -v

@@ -140,7 +140,8 @@ def test_run_command_mask_wrapper_masks_stdout_and_preserves_exit_code() -> None
     import base64
 
     secret = "sk-proj-wrappersecret1234567890abcd"
-    cmd = f"Write-Output 'API_KEY={secret}'; exit 7"
+    out_cmd = "Write-Output" if os.name == "nt" else "echo"
+    cmd = f"{out_cmd} 'API_KEY={secret}'; exit 7"
     encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
     env = os.environ.copy()
     env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
@@ -186,7 +187,8 @@ def test_antigravity_tool_guard_redirects_sensitive_file_reads_to_run_command() 
 def test_run_command_mask_wrapper_masks_env_values_including_hosts() -> None:
     import base64
 
-    cmd = "Write-Output '# reading .env'; Write-Output 'SMTP_HOST=smtp.gmail.com'; Write-Output 'PORT=587'; Write-Output 'NODE_ENV=production'"
+    out_cmd = "Write-Output" if os.name == "nt" else "echo"
+    cmd = f"{out_cmd} '# reading .env'; {out_cmd} 'SMTP_HOST=smtp.gmail.com'; {out_cmd} 'PORT=587'; {out_cmd} 'NODE_ENV=production'"
     encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
     env = os.environ.copy()
     env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
@@ -208,7 +210,8 @@ def test_run_command_mask_wrapper_masks_env_values_including_hosts() -> None:
 def test_run_command_mask_wrapper_detects_env_helper_script_names() -> None:
     import base64
 
-    cmd = "Write-Output '# C:/backup-code/check_env.py'; Write-Output 'CUSTOM_GATEWAY=gw.internal.local'"
+    out_cmd = "Write-Output" if os.name == "nt" else "echo"
+    cmd = f"{out_cmd} '# C:/backup-code/check_env.py'; {out_cmd} 'CUSTOM_GATEWAY=gw.internal.local'"
     encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
     env = os.environ.copy()
     env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
