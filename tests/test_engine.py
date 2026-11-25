@@ -34,6 +34,8 @@ def engine() -> MaskingEngine:
         ),
         ("Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9_token12345", "BEARER_TOKEN"),
         ("postgres://dbadmin:SuperSecretPass99@db.internal:5432/prod_db", "DB_URI"),
+        ("mysql+asyncmy://dbadmin:SuperSecretPass99@127.0.0.1:3306/db_ai?charset=utf8mb4", "DB_URI"),
+        ("postgresql+asyncpg://dbadmin:SuperSecretPass99@10.0.0.5:5432/app_db", "DB_URI"),
         ("password = 'RealProdPassword!99'", "SECRET_ASSIGNMENT"),
         ("DB_PASSWORD=RealDatabaseSecret99", "SECRET_ASSIGNMENT"),
         ("SMTP_SECRET=MailGatewaySecret88", "SECRET_ASSIGNMENT"),

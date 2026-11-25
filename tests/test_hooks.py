@@ -226,3 +226,34 @@ def test_run_command_mask_wrapper_detects_env_helper_script_names() -> None:
     assert proc.returncode == 0
     assert "gw.internal.local" not in proc.stdout
     assert "CUSTOM_GATEWAY=<<PII:ENV_VALUE_1>>" in proc.stdout
+
+
+def test_run_command_mask_wrapper_masks_ps_var_stdout_and_stderr_from_env_file(tmp_path: Path) -> None:
+    import base64
+
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        'MYSQL_CONNECTION_STRING="mysql+asyncmy://dbuser:SuperPass99@127.0.0.1:3306/db_ai?charset=utf8mb4"\n'
+        'MINIO_HOST="localhost:9003"\n'
+        "MINIO_ACCESS=minioadminkey\n",
+        encoding="utf-8",
+    )
+    # No quotes around .env, immediately followed by ';' (exact regression pattern)
+    cmd = f"$c = Get-Content -Raw {env_file}; Write-Output $c; [Console]::Error.WriteLine($c)"
+    encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    env = os.environ.copy()
+    env["PII_SHIELD_URL"] = "http://127.0.0.1:59999"
+
+    proc = subprocess.run(
+        [sys.executable, str(RUN_CMD_WRAPPER), encoded],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 0
+    for stream in (proc.stdout, proc.stderr):
+        assert "SuperPass99" not in stream
+        assert "minioadminkey" not in stream
+        assert "localhost:9003" not in stream
+        assert "<<PII:" in stream

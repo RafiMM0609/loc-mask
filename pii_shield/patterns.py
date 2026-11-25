@@ -16,7 +16,7 @@ SECRET_PATTERNS: list[tuple[str, str, float]] = [
     ),
     (
         "DB_URI",
-        r"(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis(?:s)?|amqp(?:s)?|mssql|sqlserver)://[^\s'\"<>:]+:[^\s'\"<>@]+@[^\s'\"<>]+",
+        r"(?:postgres(?:ql)?|mysql|mariadb|mongodb|redis(?:s)?|amqp(?:s)?|mssql|sqlserver|oracle|clickhouse)(?:\+[A-Za-z0-9_.-]+)?://[^\s'\"<>:]+:[^\s'\"<>@]+@[^\s'\"<>]+",
         0.96,
     ),
     (
@@ -118,7 +118,7 @@ CODE_EXPR_PREFIXES = (
 
 BEARER_TOKEN_RE = re.compile(r"(?i)\b(?:Bearer|Basic)\s+(?P<val>[A-Za-z0-9._~+/=-]{20,})")
 SECRET_ASSIGNMENT_RE = re.compile(
-    r"(?i)\b[A-Za-z0-9_]*(?:password|passwd|pass|pwd|client_secret|api_secret|secret_key|secret|auth_token|access_token|refresh_token|token|api_key|apikey|access_key|private_key|smtp_host|smtp_user|db_host|db_user)\b"
+    r"(?i)\b[A-Za-z0-9_]*(?:password|passwd|pass|pwd|client_secret|api_secret|secret_key|secret|auth_token|access_token|refresh_token|token|api_key|apikey|access_key|private_key|connection_string|conn_str|conn_string|dsn|smtp_host|smtp_user|db_host|db_user)\b"
     r"\s*(?:=|:)\s*(?P<quote>['\"]?)(?P<val>[^\s'\"`,;}{)(]{8,})(?P=quote)"
 )
 
