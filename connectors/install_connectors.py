@@ -46,21 +46,30 @@ def _latest_backup(path: Path) -> Path | None:
 
 def _antigravity_hook_targets() -> list[Path]:
     targets = [ANTIGRAVITY_HOOKS]
-    if T3_ANTIGRAVITY_DIR.exists():
-        for provider_dir in sorted(T3_ANTIGRAVITY_DIR.iterdir()):
-            if provider_dir.is_dir():
-                targets.append(provider_dir / "config" / "hooks.json")
+    try:
+        if T3_ANTIGRAVITY_DIR.exists():
+            for provider_dir in sorted(T3_ANTIGRAVITY_DIR.iterdir()):
+                if provider_dir.is_dir():
+                    targets.append(provider_dir / "config" / "hooks.json")
+    except OSError:
+        pass
     return targets
 
 
-def _is_antigravity_active(path: Path) -> bool:
-    if not path.exists():
-        return False
+def _antigravity_hook_state(path: Path) -> str:
     try:
+        if not path.exists():
+            return "NOT INSTALLED"
         ag_data = json.loads(path.read_text(encoding="utf-8"))
-        return "pii-shield-guard" in ag_data
-    except json.JSONDecodeError:
-        return False
+        return "ACTIVE" if "pii-shield-guard" in ag_data else "NOT INSTALLED"
+    except PermissionError:
+        return "RESTRICTED (permission denied)"
+    except (OSError, json.JSONDecodeError):
+        return "NOT INSTALLED"
+
+
+def _is_antigravity_active(path: Path) -> bool:
+    return _antigravity_hook_state(path) == "ACTIVE"
 
 
 def _is_codex_hooks_active(path: Path) -> bool:
@@ -76,7 +85,7 @@ def _is_codex_hooks_active(path: Path) -> bool:
 def show_status() -> int:
     for target in _antigravity_hook_targets():
         label = "Antigravity" if target == ANTIGRAVITY_HOOKS else "Antigravity (T3)"
-        state = "ACTIVE" if _is_antigravity_active(target) else "NOT INSTALLED"
+        state = _antigravity_hook_state(target)
         print(f"{label:<16} ({target}): {state}")
 
     codex_installed = _is_codex_hooks_active(CODEX_HOOKS)
@@ -99,8 +108,8 @@ def _resolve_venv_python() -> Path:
     return Path(sys.executable)
 
 
-def _load_antigravity_entry() -> dict:
-    raw = ANTIGRAVITY_EXAMPLE.read_text(encoding="utf-8")
+def _load_hooks_entry(example_path: Path) -> dict:
+    raw = example_path.read_text(encoding="utf-8")
     python_exe = _resolve_venv_python().as_posix()
     shield_root = SHIELD_ROOT.as_posix()
     resolved = (
@@ -112,20 +121,27 @@ def _load_antigravity_entry() -> dict:
 
 
 def apply_antigravity(dry_run: bool) -> None:
-    desired_entry = _load_antigravity_entry()
+    desired_entry = _load_hooks_entry(ANTIGRAVITY_EXAMPLE)
     for target in _antigravity_hook_targets():
         existing = {}
+        original_text = ""
         if target.exists():
-            existing = json.loads(target.read_text(encoding="utf-8"))
+            original_text = target.read_text(encoding="utf-8")
+            existing = json.loads(original_text)
         existing.update(desired_entry)
+        hook_text = json.dumps(existing, indent=2) + "\n"
 
         if dry_run:
             print(f"[DRY-RUN] Akan mengupdate {target} dengan key 'pii-shield-guard'")
             continue
 
+        if target.exists() and original_text == hook_text:
+            print(f"[OK] Antigravity hook sudah terbaru di {target}")
+            continue
+
         target.parent.mkdir(parents=True, exist_ok=True)
         bak = _backup(target)
-        target.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+        target.write_text(hook_text, encoding="utf-8")
         print(f"[OK] Antigravity hook terpasang di {target}" + (f" (backup: {bak})" if bak else ""))
 
 

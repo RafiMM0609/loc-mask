@@ -294,3 +294,151 @@ def test_codex_tool_guard_blocks_sensitive_files_and_secrets() -> None:
     sec_out = json.loads(blocked_secret.stdout)["hookSpecificOutput"]
     assert sec_out["permissionDecision"] == "deny"
     assert "GITHUB_TOKEN" in sec_out["permissionDecisionReason"]
+
+
+def test_antigravity_tool_guard_blocks_grep_search_on_sensitive_targets_and_allows_normal() -> None:
+    env_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "grep_search", "args": {"SearchPath": "C:/app/.env", "Query": "SECRET"}}},
+    )
+    assert env_res.returncode == 0
+    assert json.loads(env_res.stdout)["decision"] == "deny"
+
+    inc_env_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "toolCall": {
+                "name": "grep_search",
+                "args": {"SearchPath": "C:/app", "Query": "KEY", "Includes": [".env*"]},
+            }
+        },
+    )
+    assert inc_env_res.returncode == 0
+    assert json.loads(inc_env_res.stdout)["decision"] == "deny"
+
+    inc_pem_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "toolCall": {
+                "name": "grep_search",
+                "args": {"SearchPath": "C:/app", "Query": "BEGIN", "Includes": ["*.pem"]},
+            }
+        },
+    )
+    assert inc_pem_res.returncode == 0
+    assert json.loads(inc_pem_res.stdout)["decision"] == "deny"
+
+    ok_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "toolCall": {
+                "name": "grep_search",
+                "args": {"SearchPath": "C:/app/src", "Query": "def main", "Includes": ["*.py"]},
+            }
+        },
+    )
+    assert ok_res.returncode == 0
+    assert json.loads(ok_res.stdout) == {"decision": "allow"}
+
+
+def test_antigravity_tool_guard_scans_config_and_data_files_on_read(tmp_path: Path) -> None:
+    offline_env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
+    secret = "sk-proj-" + "syntheticconfigkey1234567890"
+    nik = "3273011508950001"
+
+    leads_csv = tmp_path / "leads.csv"
+    leads_csv.write_text(f"id,nik\n1,{nik}\n", encoding="utf-8")
+
+    app_json = tmp_path / "appsettings.json"
+    app_json.write_text(json.dumps({"OpenAI": {"ApiKey": secret}}), encoding="utf-8")
+
+    pkg_json = tmp_path / "package.json"
+    pkg_json.write_text(json.dumps({"name": "demo", "version": "1.0.0"}), encoding="utf-8")
+
+    csv_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "read_file", "args": {"Path": str(leads_csv)}}},
+        env_extra=offline_env,
+    )
+    assert csv_res.returncode == 0
+    csv_data = json.loads(csv_res.stdout)
+    assert csv_data["decision"] == "deny"
+    assert "ID_NIK" in csv_data["reason"]
+    assert "run_command" in csv_data["reason"]
+    assert nik not in csv_data["reason"]
+
+    json_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "view_file", "args": {"AbsolutePath": str(app_json)}}},
+        env_extra=offline_env,
+    )
+    assert json_res.returncode == 0
+    json_data = json.loads(json_res.stdout)
+    assert json_data["decision"] == "deny"
+    assert "OPENAI_API_KEY" in json_data["reason"]
+    assert secret not in json_data["reason"]
+
+    pkg_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "read_file", "args": {"Path": str(pkg_json)}}},
+        env_extra=offline_env,
+    )
+    assert pkg_res.returncode == 0
+    assert json.loads(pkg_res.stdout) == {"decision": "allow"}
+
+    envrc_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "view_file_outline", "args": {"AbsolutePath": "C:/app/.envrc"}}},
+        env_extra=offline_env,
+    )
+    assert envrc_res.returncode == 0
+    assert json.loads(envrc_res.stdout)["decision"] == "deny"
+
+    aws_res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {"toolCall": {"name": "read_file", "args": {"Path": "C:/Users/me/.aws/credentials"}}},
+        env_extra=offline_env,
+    )
+    assert aws_res.returncode == 0
+    assert json.loads(aws_res.stdout)["decision"] == "deny"
+
+
+def test_antigravity_tool_guard_forwards_conversation_id_to_wrapper() -> None:
+    res = _run_guard(
+        ANTIGRAVITY_TOOL_GUARD,
+        {
+            "conversationId": "7997dba8-1569-467f",
+            "toolCall": {"name": "run_command", "args": {"CommandLine": "Write-Output 'ok'"}},
+        },
+    )
+    assert res.returncode == 0
+    data = json.loads(res.stdout)
+    assert data["decision"] == "allow"
+    assert "agy-7997dba8-1569-467f" in data["overwrite"]["CommandLine"]
+
+
+def test_run_command_mask_wrapper_offline_forward_and_deterministic_placeholders() -> None:
+    import base64
+
+    k1 = "sk-proj-" + "firstkeydeterministic123456"
+    k2 = "sk-proj-" + "secondkeydeterministic12345"
+    if os.name == "nt":
+        cmd = f"Write-Output 'A={k1}'; Write-Output 'B={k2}'; [Console]::Error.WriteLine('C={k1}')"
+    else:
+        cmd = f"echo 'A={k1}'; echo 'B={k2}'; echo 'C={k1}' >&2"
+    encoded = base64.b64encode(cmd.encode("utf-8")).decode("ascii")
+    env = {**os.environ, "PII_SHIELD_URL": "http://127.0.0.1:59999"}
+
+    proc = subprocess.run(
+        [sys.executable, str(RUN_CMD_WRAPPER), encoded],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 0
+    assert k1 not in proc.stdout and k1 not in proc.stderr
+    assert k2 not in proc.stdout
+    assert "A=<<PII:OPENAI_API_KEY_1>>" in proc.stdout
+    assert "B=<<PII:OPENAI_API_KEY_2>>" in proc.stdout
+    assert "C=<<PII:OPENAI_API_KEY_1>>" in proc.stderr

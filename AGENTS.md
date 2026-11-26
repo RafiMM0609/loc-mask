@@ -40,7 +40,7 @@ Always inspect status and dry-run first, and only apply connectors the user asks
 ```
 
 Targets supported by `install_connectors.py --apply <antigravity|codex|pi|all>`:
-- `antigravity`: Installs `PreInvocation` + `PreToolUse` hooks into `~/.gemini/config/hooks.json` and any `~/.t3/userdata/providers/antigravity/*/config/hooks.json`.
+- `antigravity`: Installs `PreInvocation` + `PreToolUse` hooks (`run_command|read_file|view_file|view_file_outline|view_code_item|grep_search`) into `~/.gemini/config/hooks.json` and any `~/.t3/userdata/providers/antigravity/*/config/hooks.json` with idempotent `.bak.*` backups, forwarding `agy-<conversationId>` as the masking session ID. Inside Antigravity's Terminal Sandbox, `--status` safely reports `RESTRICTED (permission denied)` for `~/.gemini/config/hooks.json`; run `--apply antigravity` or `--rollback` outside the sandbox (`BypassSandbox: true` or a standard host terminal) when updating `~/.gemini/config/`.
 - `codex`: Installs `UserPromptSubmit` + `PreToolUse` hooks (`codex_hook_guard.py` + `codex_tool_guard.py`) into `~/.codex/hooks.json` (and cleans up any legacy `chatgpt_base_url` block in `~/.codex/config.toml`).
 - `pi`: Copies `connectors/pi/pii-shield.ts` to `~/.pi/agent/extensions/pii-shield.ts`.
 - Rollback anytime with `--rollback`.
@@ -48,5 +48,10 @@ Targets supported by `install_connectors.py --apply <antigravity|codex|pi|all>`:
 ## 4. Guardrails for Agents Working on This Repo
 
 - **Never commit real secrets or `.env` values.** Test fixtures that match provider token prefixes (e.g., Slack/Stripe) must be constructed via string concatenation so GitHub Push Protection does not block pushes.
-- **Do not use `read_file`/`view_file` on `.env` or private key files** when Antigravity `PreToolUse` hooks are active; use `run_command` so output is automatically masked.
+- **Do not use `read_file`/`view_file`/`view_file_outline`/`view_code_item` or `grep_search` on `.env`, private key files, or config/data/log files containing secrets/PII** when Antigravity `PreToolUse` hooks are active; `antigravity_tool_guard.py` blocks direct unmasked reads and redirects to `run_command` so output is automatically masked.
 - **Keep `.venv/`, `.run/`, `__pycache__/`, and `.pytest_cache/` untracked** (handled by `.gitignore`).
+
+## 5. Antigravity & T3 Code ToS Compliance & Architecture Notes
+
+- **Official Hooks Only (No OAuth/API Proxy for Antigravity):** Antigravity (`agy`) and T3 Code integration **must only** use official `hooks.json` lifecycle contracts (`PreInvocation` + `PreToolUse`) alongside the unmodified `agy` / `antigravity-acp` binary. Never route Antigravity personal OAuth traffic through a local HTTP/MITM proxy or pool multiple personal Google accounts concurrently in T3 Code, as that violates Google Antigravity Additional Terms of Service (Section 6).
+- **Buffered `run_command` Output:** `run_command_mask_wrapper.py` buffers `stdout`/`stderr` until command exit so multi-line secrets (e.g., PEM private keys) can be reliably scanned and redacted before reaching the model. Long-running background processes with `IsDaemon: true` bypass the wrapper automatically.

@@ -6,7 +6,7 @@ Server masking lokal Python (**Microsoft Presidio + Secret Pattern Recognizers**
 
 - **Antigravity (`agy`) & T3 Code:**
   - **`PreInvocation` Safety Gate** (`antigravity_guard.py`): Memblokir prompt user jika mengandung secret/PII (otomatis *fallback* ke regex offline jika server mati).
-  - **`PreToolUse` Tool Guard** (`antigravity_tool_guard.py` + `run_command_mask_wrapper.py`): Memasking `stdout`/`stderr` dari `run_command` sebelum masuk ke model, serta mengalihkan `read_file`/`view_file` atas file sensitif (`.env`, `*.pem`, `*.key`, `credentials.json`, dll.) agar dibaca lewat `run_command`.
+  - **`PreToolUse` Tool Guard** (`antigravity_tool_guard.py` + `run_command_mask_wrapper.py`): Memasking `stdout`/`stderr` dari `run_command` sebelum masuk ke model, serta memblokir `read_file`/`view_file`/`view_file_outline`/`view_code_item` dan `grep_search` pada file sensitif (`.env`, `*.pem`, `*.key`, `credentials.json`, dll.) maupun file config/data/log yang terdeteksi mengandung secret/PII agar dibaca lewat `run_command`.
 - **Codex CLI & Pi dev CLI:**
   - **Auto-Mask & Unmask 2 Arah** (`nilai asli` ↔ `<<PII:TYPE_N>>`) lewat reverse proxy (`/chatgpt-backend/`, `/openai/`) dan extension Pi (`pii-shield.ts`), termasuk SSE streaming.
 - **Zero Disk Leak & Konteks Aman:** Vault 2 arah hanya disimpan di RAM; `PERSON`, `LOCATION`, dan IP lokal tidak dimasking secara default.
@@ -45,7 +45,7 @@ Atau klik ganda `start-server.cmd` / `stop-server.cmd`.
 Perintah ini otomatis memasang `hooks.json` ke `~/.gemini/config/hooks.json` (`agy` CLI/IDE) dan seluruh provider Antigravity di T3 Code (`~/.t3/userdata/providers/antigravity/*/config/hooks.json`).
 - **Prompt sensitif** langsung diblokir sebelum dikirim ke model.
 - **Output `run_command`** otomatis dimasking (`<<PII:...>>`).
-- **Akses baca `.env` / file kunci** lewat `read_file`/`view_file` otomatis ditolak dan diarahkan agar memakai `run_command`.
+- **Akses baca/cari `.env`, file kunci, maupun config/data/log berisi secret/PII** lewat `read_file`/`view_file`/`grep_search` otomatis ditolak dan diarahkan agar memakai `run_command`.
 - *Catatan:* Untuk thread T3 Code yang sudah berjalan sebelum hook dipasang, buka thread baru agar `hooks.json` termuat.
 
 ### 2. Codex CLI & Pi dev CLI
