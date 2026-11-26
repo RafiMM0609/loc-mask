@@ -100,6 +100,7 @@ def create_app(
         vault_stats = request.app.state.engine.vault.stats()
         return {
             "status": "ok",
+            "service": "pii-shield",
             "version": __version__,
             "host": request.app.state.config.server.host,
             "port": request.app.state.config.server.port,

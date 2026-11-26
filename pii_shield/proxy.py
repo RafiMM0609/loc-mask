@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any, AsyncIterator
-from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Request, Response
@@ -55,6 +54,8 @@ def _filter_response_headers(headers: httpx.Headers) -> dict[str, str]:
 def _extract_session_id(request: Request) -> str:
     return (
         request.headers.get("x-pii-session")
+        or request.headers.get("session_id")
+        or request.headers.get("x-codex-thread-id")
         or request.headers.get("x-session-id")
         or request.headers.get("chatgpt-account-id")
         or "default"
@@ -138,14 +139,18 @@ async def _forward_request(request: Request, target_url: str) -> Response:
 
     if request.url.query:
         target_url = f"{target_url}?{request.url.query}"
-    elif request.query_params:
-        target_url = f"{target_url}?{urlencode(list(request.query_params.multi_items()))}"
 
     raw_body = await request.body()
     content_type = request.headers.get("content-type", "")
     headers = _filter_request_headers(request.headers)
 
-    if raw_body and "application/json" in content_type.lower():
+    # The installed provider sends plain JSON over HTTP/SSE. Never pass a body
+    # we cannot inspect through to the model (e.g. a compressed legacy request).
+    if raw_body and request.headers.get("content-encoding", "identity").lower() != "identity":
+        return JSONResponse(status_code=415, content={"error": "unsupported_content_encoding"})
+    if raw_body and "application/json" not in content_type.lower():
+        return JSONResponse(status_code=415, content={"error": "expected_json_payload"})
+    if raw_body:
         try:
             payload = json.loads(raw_body.decode("utf-8"))
             masked_payload, masked_types = engine.mask_payload(payload, session_id=session_id)
@@ -158,7 +163,10 @@ async def _forward_request(request: Request, target_url: str) -> Response:
                 )
             raw_body = json.dumps(masked_payload, ensure_ascii=False).encode("utf-8")
         except (UnicodeDecodeError, json.JSONDecodeError):
-            pass
+            return JSONResponse(status_code=400, content={"error": "invalid_json_payload"})
+        except Exception:
+            logger.error("Outgoing masking failed; request was not forwarded")
+            return JSONResponse(status_code=503, content={"error": "masking_unavailable"})
 
     upstream_req = client.build_request(
         method=request.method,

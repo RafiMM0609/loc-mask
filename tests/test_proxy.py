@@ -14,6 +14,70 @@ from pii_shield.server import create_app
 from pii_shield.vault import StreamingUnmaskBuffer
 
 
+@pytest.fixture(scope="module")
+def automatic_proxy():
+    cfg = load_config()
+    cfg.masking.detect_person_and_ip = True
+    upstream = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        upstream.append((str(request.url), json.loads(request.content)))
+        return httpx.Response(200, json={"output": "ok"})
+
+    app = create_app(config=cfg, proxy_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with TestClient(app) as client:
+        yield client, upstream, app.state.engine
+
+
+def test_codex_prompt_and_tool_output_use_shared_nlp_and_regex(automatic_proxy) -> None:
+    client, upstream, _ = automatic_proxy
+    raw_prompt = "Barack Obama visited Paris. Email private.person@example.net; NIK 3273011508950001."
+    secret = "sk-proj-" + "codexautomaticsecret1234567890"
+    response = client.post("/chatgpt-backend/codex/responses", headers={"session_id": "codex-thread"}, json={
+        "model": "test-model",
+        "input": [
+            {"role": "user", "content": [{"type": "input_text", "text": raw_prompt}]},
+            {"type": "function_call_output", "call_id": "call-1", "output": f"API_KEY={secret}"},
+        ],
+    })
+    assert response.status_code == 200
+    url, payload = upstream[-1]
+    assert url == "https://chatgpt.com/backend-api/codex/responses"
+    outgoing = json.dumps(payload)
+    for value in ("Barack Obama", "Paris", "private.person@example.net", "3273011508950001", secret):
+        assert value not in outgoing
+    for kind in ("PERSON", "LOCATION", "EMAIL_ADDRESS", "ID_NIK", "OPENAI_API_KEY"):
+        assert f"<<PII:{kind}_" in outgoing
+    assert payload["model"] == "test-model"
+    assert payload["input"][1]["call_id"] == "call-1"
+
+
+@pytest.mark.parametrize("headers,body,status", [
+    ({"content-type": "application/json"}, b'{"input": broken}', 400),
+    ({"content-type": "application/json", "content-encoding": "zstd"}, b"compressed", 415),
+    ({"content-type": "text/plain"}, b"unscannable body", 415),
+])
+def test_proxy_never_forwards_uninspected_bodies(automatic_proxy, headers, body, status) -> None:
+    client, upstream, _ = automatic_proxy
+    count = len(upstream)
+    response = client.post("/chatgpt-backend/codex/responses", headers=headers, content=body)
+    assert response.status_code == status
+    assert len(upstream) == count
+
+
+def test_proxy_never_forwards_on_masking_failure(automatic_proxy, monkeypatch) -> None:
+    client, upstream, engine = automatic_proxy
+    count = len(upstream)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(engine, "mask_payload", unavailable)
+    response = client.post("/chatgpt-backend/codex/responses", json={"input": "private data"})
+    assert response.status_code == 503
+    assert len(upstream) == count
+
+
 def test_streaming_unmask_buffer_handles_split_placeholder() -> None:
     engine = MaskingEngine(load_config())
     secret = "sk-proj-streamtest1234567890abcdef"
