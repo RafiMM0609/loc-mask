@@ -71,10 +71,15 @@ def main() -> int:
 
     if detected:
         print(
-            f"[PII-Shield] Prompt diblokir! Terdeteksi data sensitif: {', '.join(detected)}",
-            file=sys.stderr,
+            json.dumps(
+                {
+                    "decision": "block",
+                    "reason": f"[PII-Shield] Prompt diblokir! Terdeteksi data sensitif: {', '.join(detected)}",
+                },
+                ensure_ascii=False,
+            )
         )
-        return 2
+        return 0
     return 0
 
 

@@ -87,11 +87,21 @@ def main() -> int:
     if sensitive_match:
         target = sensitive_match.group(1)
         print(
-            f"[PII-Shield] Perintah diblokir! Terdeteksi akses file sensitif '{target}' "
-            "yang berisiko membocorkan kredensial ke konteks model.",
-            file=sys.stderr,
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            f"[PII-Shield] Perintah diblokir! Terdeteksi akses file sensitif '{target}' "
+                            "yang berisiko membocorkan kredensial ke konteks model."
+                        ),
+                    }
+                },
+                ensure_ascii=False,
+            )
         )
-        return 2
+        return 0
 
     detected = _scan_via_server(command)
     if detected is None:
@@ -99,10 +109,20 @@ def main() -> int:
 
     if detected:
         print(
-            f"[PII-Shield] Perintah diblokir! Terdeteksi data sensitif pada argumen perintah: {', '.join(detected)}",
-            file=sys.stderr,
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            f"[PII-Shield] Perintah diblokir! Terdeteksi data sensitif pada argumen perintah: {', '.join(detected)}"
+                        ),
+                    }
+                },
+                ensure_ascii=False,
+            )
         )
-        return 2
+        return 0
 
     return 0
 

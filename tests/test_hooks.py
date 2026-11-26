@@ -105,8 +105,10 @@ def test_codex_hook_guard_exit_codes() -> None:
         {"prompt": "Gunakan token ghp_1234567890abcdefghijklmnopqrstuvwxyz"},
         env_extra=offline_env,
     )
-    assert blocked.returncode == 2
-    assert "GITHUB_TOKEN" in blocked.stderr
+    assert blocked.returncode == 0
+    blocked_data = json.loads(blocked.stdout)
+    assert blocked_data["decision"] == "block"
+    assert "GITHUB_TOKEN" in blocked_data["reason"]
 
 
 def test_antigravity_tool_guard_rewrites_run_command_and_skips_daemon() -> None:
@@ -275,8 +277,10 @@ def test_codex_tool_guard_blocks_sensitive_files_and_secrets() -> None:
         {"tool_name": "Bash", "tool_input": {"command": "cat .env"}},
         env_extra=offline_env,
     )
-    assert blocked_env.returncode == 2
-    assert ".env" in blocked_env.stderr
+    assert blocked_env.returncode == 0
+    env_out = json.loads(blocked_env.stdout)["hookSpecificOutput"]
+    assert env_out["permissionDecision"] == "deny"
+    assert ".env" in env_out["permissionDecisionReason"]
 
     blocked_secret = _run_guard(
         CODEX_TOOL_GUARD,
@@ -286,5 +290,7 @@ def test_codex_tool_guard_blocks_sensitive_files_and_secrets() -> None:
         },
         env_extra=offline_env,
     )
-    assert blocked_secret.returncode == 2
-    assert "GITHUB_TOKEN" in blocked_secret.stderr
+    assert blocked_secret.returncode == 0
+    sec_out = json.loads(blocked_secret.stdout)["hookSpecificOutput"]
+    assert sec_out["permissionDecision"] == "deny"
+    assert "GITHUB_TOKEN" in sec_out["permissionDecisionReason"]
