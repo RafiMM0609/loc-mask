@@ -11,13 +11,13 @@
         ]
       }
     ],
-    "PreToolUse": [
+    "PostToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/codex/codex_tool_guard.py",
+            "command": "~/pii-shield/.venv/bin/python ~/pii-shield/connectors/codex/codex_shell_output_guard.py",
             "timeout": 5
           }
         ]

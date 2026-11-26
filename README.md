@@ -7,8 +7,8 @@ Server masking lokal Python (**Microsoft Presidio + Secret Pattern Recognizers**
 - **Antigravity (`agy`) & T3 Code:**
   - **`PreInvocation` Safety Gate** (`antigravity_guard.py`): Memblokir prompt user jika mengandung secret/PII (otomatis *fallback* ke regex offline jika server mati).
   - **`PreToolUse` Tool Guard** (`antigravity_tool_guard.py` + `run_command_mask_wrapper.py`): Memasking `stdout`/`stderr` dari `run_command` sebelum masuk ke model, serta memblokir `read_file`/`view_file`/`view_file_outline`/`view_code_item` dan `grep_search` pada file sensitif (`.env`, `*.pem`, `*.key`, `credentials.json`, dll.) maupun file config/data/log yang terdeteksi mengandung secret/PII agar dibaca lewat `run_command`.
-- **Codex CLI & Pi dev CLI:**
-  - **Auto-Mask & Unmask 2 Arah** (`nilai asli` ↔ `<<PII:TYPE_N>>`) lewat reverse proxy (`/chatgpt-backend/`, `/openai/`) dan extension Pi (`pii-shield.ts`), termasuk SSE streaming.
+- **Codex CLI:** Hook native memeriksa prompt pengguna dan menyamarkan output shell. Jika PS menemukan data sensitif di prompt, samarkan data itu lalu kirim ulang.
+- **Pi dev CLI:** Extension `pii-shield.ts` mendukung masking dan unmasking 2 arah (`nilai asli` ↔ `<<PII:TYPE_N>>`).
 - **Zero Disk Leak & Konteks Aman:** Vault 2 arah hanya disimpan di RAM; `PERSON`, `LOCATION`, dan IP lokal tidak dimasking secara default.
 
 ---
@@ -55,9 +55,19 @@ Perintah ini otomatis memasang `hooks.json` ke `~/.gemini/config/hooks.json` (`a
 :: atau pasang semua sekaligus:
 .venv\Scripts\python.exe connectors\install_connectors.py --apply all
 ```
-Pastikan server `pii-shield` dalam status `RUNNING` sebelum memakai proxy Codex CLI (`chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"`).
+Installer Codex memasang `UserPromptSubmit` dan `PostToolUse` di `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). Buka sesi baru dan tinjau serta percayai kedua hook di `/hooks`. Login dan provider mengikuti konfigurasi Codex.
+
+- `UserPromptSubmit` memeriksa teks prompt lewat server PS lokal. Saat server tidak tersedia, hook memakai regex offline. Pesan blokir berisi jenis temuan agar pengguna bisa menyamarkan teks dan mengirim ulang.
+- `PostToolUse` memeriksa hasil shell yang diberikan Codex. Jika hasil memuat data sensitif, hook menggantinya dengan teks yang sudah disamarkan. Codex menjalankan command asli dengan kebijakan sandbox dan approval sesi.
+
+Cakupan kedua hook ini terbatas pada teks prompt pengguna dan hasil shell yang diterima `PostToolUse`. Output parsial yang dilepas saat command masih berjalan, lampiran, riwayat lokal, dan hasil tool lain berada di luar cakupan.
+
+Untuk instalasi proxy lama, jalankan `--apply codex --dry-run` terlebih dahulu. Installer menghapus blok proxy milik PS dan memulihkan pilihan provider jika backup yang cocok menghasilkan satu pilihan. Jika pilihan lama ambigu, tentukan `model_provider` di `config.toml` atau hapus selector agar Codex memakai default, lalu ulangi.
 
 ### Rollback
 ```cmd
 .venv\Scripts\python.exe connectors\install_connectors.py --rollback
+.venv\Scripts\python.exe connectors\install_connectors.py --rollback codex
 ```
+
+Rollback Codex memakai snapshot sebelum pemasangan. Jika file terkait disunting setelah pemasangan, installer melindungi perubahan tersebut dan menunjukkan lokasi backup untuk pemulihan manual.

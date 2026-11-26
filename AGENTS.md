@@ -41,7 +41,7 @@ Always inspect status and dry-run first, and only apply connectors the user asks
 
 Targets supported by `install_connectors.py --apply <antigravity|codex|pi|all>`:
 - `antigravity`: Installs `PreInvocation` + `PreToolUse` hooks (`run_command|read_file|view_file|view_file_outline|view_code_item|grep_search`) into `~/.gemini/config/hooks.json` and any `~/.t3/userdata/providers/antigravity/*/config/hooks.json` with idempotent `.bak.*` backups, forwarding `agy-<conversationId>` as the masking session ID. Inside Antigravity's Terminal Sandbox, `--status` safely reports `RESTRICTED (permission denied)` for `~/.gemini/config/hooks.json`; run `--apply antigravity` or `--rollback` outside the sandbox (`BypassSandbox: true` or a standard host terminal) when updating `~/.gemini/config/`.
-- `codex`: Installs `UserPromptSubmit` + `PreToolUse` hooks (`codex_hook_guard.py` + `codex_tool_guard.py`) into `~/.codex/hooks.json` (and cleans up any legacy `chatgpt_base_url` block in `~/.codex/config.toml`).
+- `codex`: Installs `UserPromptSubmit` for local prompt scanning and `PostToolUse` for shell output masking in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`). Users can review and trust the hooks in `/hooks` in a new session. The installer migrates legacy PS proxy blocks when it can identify the previous provider. Use `--rollback codex` to restore the pre-install snapshot for Codex alone.
 - `pi`: Copies `connectors/pi/pii-shield.ts` to `~/.pi/agent/extensions/pii-shield.ts`.
 - Rollback anytime with `--rollback`.
 

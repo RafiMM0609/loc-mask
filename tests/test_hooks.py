@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -14,8 +15,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ANTIGRAVITY_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_guard.py"
 ANTIGRAVITY_TOOL_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_tool_guard.py"
 RUN_CMD_WRAPPER = PROJECT_ROOT / "connectors" / "antigravity" / "run_command_mask_wrapper.py"
-CODEX_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_hook_guard.py"
-CODEX_TOOL_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_tool_guard.py"
+CODEX_PROMPT_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_hook_guard.py"
+CODEX_OUTPUT_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_shell_output_guard.py"
 
 
 def _run_guard(script: Path, payload: dict, env_extra: dict[str, str] | None = None):
@@ -30,6 +31,103 @@ def _run_guard(script: Path, payload: dict, env_extra: dict[str, str] | None = N
         env=env,
         timeout=10,
     )
+
+
+def test_codex_shell_masks_tool_result_and_preserves_exit_status() -> None:
+    synthetic = "sk-proj-" + "syntheticcodextest1234567890"
+    payload = {
+        "session_id": "test-session",
+        "tool_input": {"command": "Get-Content .env"},
+        "tool_response": f"Process exited with code 7\nOutput:\nCUSTOM_GATEWAY=private.internal.example\n{synthetic}",
+    }
+    env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
+    replaced = _run_guard(CODEX_OUTPUT_GUARD, payload, env)
+    feedback = json.loads(replaced.stdout)
+    assert replaced.returncode == 0
+    assert feedback["decision"] == "block"
+    assert "exited with code 7" in feedback["reason"]
+    assert "private.internal.example" not in feedback["reason"]
+    assert synthetic not in feedback["reason"]
+    assert "<<PII:" in feedback["reason"]
+
+    payload["tool_response"] = "Process exited with code 0\nOutput:\nPlain text"
+    clean = _run_guard(CODEX_OUTPUT_GUARD, payload, env)
+    assert clean.returncode == 0
+    assert clean.stdout == ""
+
+
+def test_codex_shell_holds_unrecognized_result() -> None:
+    result = _run_guard(CODEX_OUTPUT_GUARD, {"tool_response": {"private detail": "synthetic input"}})
+    assert result.returncode == 0
+    assert json.loads(result.stdout)["decision"] == "block"
+    assert "synthetic input" not in result.stdout + result.stderr
+
+
+def test_codex_prompt_guard_uses_local_fallback() -> None:
+    env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
+    clean = _run_guard(CODEX_PROMPT_GUARD, {"prompt": "Explain middleware"}, env)
+    assert clean.returncode == 0
+    assert clean.stdout == ""
+
+    synthetic = "sk-proj-" + "syntheticcodexprompt1234567890"
+    blocked = _run_guard(CODEX_PROMPT_GUARD, {"prompt": f"Debug {synthetic}"}, env)
+    assert blocked.returncode == 0
+    assert json.loads(blocked.stdout)["decision"] == "block"
+    assert "OPENAI_API_KEY" in blocked.stdout
+    assert synthetic not in blocked.stdout + blocked.stderr
+
+
+def test_codex_prompt_guard_blocks_when_scanner_fails(monkeypatch, capsys) -> None:
+    from connectors.codex import codex_hook_guard as guard
+
+    monkeypatch.setattr(guard, "_scan_via_server", lambda *_: None)
+
+    def unavailable(*args):
+        raise RuntimeError("private detail")
+
+    monkeypatch.setattr(guard, "_scan_offline", unavailable)
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"prompt": "synthetic input"}'))
+    guard.main()
+    output = capsys.readouterr().out
+    assert json.loads(output)["decision"] == "block"
+    assert "scanner tidak tersedia" in output
+    assert "private detail" not in output
+    assert "synthetic input" not in output
+
+
+def test_codex_prompt_guard_uses_live_scan(tmp_path: Path) -> None:
+    requests = []
+
+    class ScanHandler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            body = self.rfile.read(int(self.headers["Content-Length"]))
+            requests.append((self.path, json.loads(body)))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"has_sensitive":true,"entity_types":["PERSON"]}')
+
+        def log_message(self, format, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), ScanHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    config = tmp_path / "config.yaml"
+    config.write_text(f"server:\n  port: {server.server_port}\n", encoding="utf-8")
+    try:
+        result = _run_guard(CODEX_PROMPT_GUARD, {"prompt": "Synthetic Person"}, {
+            "PII_SHIELD_CONFIG": str(config), "PII_SHIELD_URL": "",
+        })
+        assert result.returncode == 0
+        assert json.loads(result.stdout)["decision"] == "block"
+        assert "PERSON" in result.stdout
+        assert "Synthetic Person" not in result.stdout + result.stderr
+        assert requests == [("/api/v1/scan", {"text": "Synthetic Person"})]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
 
 
 def test_antigravity_guard_offline_fallback_blocks_leak_and_allows_clean() -> None:
@@ -95,20 +193,6 @@ def test_antigravity_guard_live_server_mode() -> None:
         srv.server_close()
 
 
-def test_codex_hook_guard_exit_codes() -> None:
-    offline_env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
-    ok = _run_guard(CODEX_GUARD, {"prompt": "Refactor unit tests"}, env_extra=offline_env)
-    assert ok.returncode == 0
-
-    blocked = _run_guard(
-        CODEX_GUARD,
-        {"prompt": "Gunakan token ghp_1234567890abcdefghijklmnopqrstuvwxyz"},
-        env_extra=offline_env,
-    )
-    assert blocked.returncode == 0
-    blocked_data = json.loads(blocked.stdout)
-    assert blocked_data["decision"] == "block"
-    assert "GITHUB_TOKEN" in blocked_data["reason"]
 
 
 def test_antigravity_tool_guard_rewrites_run_command_and_skips_daemon() -> None:
@@ -260,40 +344,6 @@ def test_run_command_mask_wrapper_masks_ps_var_stdout_and_stderr_from_env_file(t
         assert "minioadminkey" not in stream
         assert "localhost:9003" not in stream
         assert "<<PII:" in stream
-
-
-def test_codex_tool_guard_blocks_sensitive_files_and_secrets() -> None:
-    offline_env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
-
-    ok = _run_guard(
-        CODEX_TOOL_GUARD,
-        {"tool_name": "Bash", "tool_input": {"command": "git status && cat .env.example"}},
-        env_extra=offline_env,
-    )
-    assert ok.returncode == 0
-
-    blocked_env = _run_guard(
-        CODEX_TOOL_GUARD,
-        {"tool_name": "Bash", "tool_input": {"command": "cat .env"}},
-        env_extra=offline_env,
-    )
-    assert blocked_env.returncode == 0
-    env_out = json.loads(blocked_env.stdout)["hookSpecificOutput"]
-    assert env_out["permissionDecision"] == "deny"
-    assert ".env" in env_out["permissionDecisionReason"]
-
-    blocked_secret = _run_guard(
-        CODEX_TOOL_GUARD,
-        {
-            "tool_name": "Bash",
-            "tool_input": {"command": "curl -H 'Authorization: Bearer ghp_1234567890abcdefghijklmnopqrstuvwxyz' https://api.github.com"},
-        },
-        env_extra=offline_env,
-    )
-    assert blocked_secret.returncode == 0
-    sec_out = json.loads(blocked_secret.stdout)["hookSpecificOutput"]
-    assert sec_out["permissionDecision"] == "deny"
-    assert "GITHUB_TOKEN" in sec_out["permissionDecisionReason"]
 
 
 def test_antigravity_tool_guard_blocks_grep_search_on_sensitive_targets_and_allows_normal() -> None:
