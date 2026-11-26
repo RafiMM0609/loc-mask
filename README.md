@@ -42,11 +42,13 @@ Atau klik ganda `start-server.cmd` / `stop-server.cmd`.
 ```cmd
 .venv\Scripts\python.exe connectors\install_connectors.py --apply antigravity
 ```
-Perintah ini otomatis memasang `hooks.json` ke `~/.gemini/config/hooks.json` (`agy` CLI/IDE) dan seluruh provider Antigravity di T3 Code (`~/.t3/userdata/providers/antigravity/*/config/hooks.json`).
+Installer memasang hook PS di `~/.gemini/config/hooks.json` untuk Antigravity standalone dan di `~/.t3/userdata/providers/antigravity/<profile-id>/config/hooks.json` untuk setiap profil Antigravity yang sudah ada di T3 Code. Setiap profil punya file sendiri. Installer mempertahankan entri lain dan membuat backup `.bak.*` jika file yang sudah ada perlu diperbarui.
+
+Jalankan kembali `--apply antigravity` setelah menambahkan profil Antigravity baru di T3 Code. Gunakan `--status` untuk mengecek pemasangan per profil, lalu buka thread baru di profil itu agar T3 Code memuat hook.
+
 - **Prompt sensitif** langsung diblokir sebelum dikirim ke model.
 - **Output `run_command`** otomatis dimasking (`<<PII:...>>`).
 - **Akses baca/cari `.env`, file kunci, maupun config/data/log berisi secret/PII** lewat `read_file`/`view_file`/`grep_search` otomatis ditolak dan diarahkan agar memakai `run_command`.
-- *Catatan:* Untuk thread T3 Code yang sudah berjalan sebelum hook dipasang, buka thread baru agar `hooks.json` termuat.
 
 ### 2. Codex CLI & Pi dev CLI
 ```cmd
