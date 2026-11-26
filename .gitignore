@@ -18,3 +18,4 @@ build/
 .env.*
 *.bak
 *.bak.*
+/CODEX_HOOKS_SUPPORT.md
