@@ -252,6 +252,8 @@ async def proxy_openai(request: Request, path: str) -> Response:
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def proxy_chatgpt_backend(request: Request, path: str) -> Response:
+    if path.startswith("api/"):
+        return await _forward_request(request, f"https://chatgpt.com/{path}")
     return await _forward_request(request, f"https://chatgpt.com/backend-api/{path}")
 
 
