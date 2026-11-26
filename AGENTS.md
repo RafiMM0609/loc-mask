@@ -41,7 +41,7 @@ Always inspect status and dry-run first, and only apply connectors the user asks
 
 Targets supported by `install_connectors.py --apply <antigravity|codex|pi|all>`:
 - `antigravity`: Installs `PreInvocation` + `PreToolUse` hooks into `~/.gemini/config/hooks.json` and any `~/.t3/userdata/providers/antigravity/*/config/hooks.json`.
-- `codex`: Prepends `chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"` to `~/.codex/config.toml` (with `.bak` backup).
+- `codex`: Installs `UserPromptSubmit` + `PreToolUse` hooks (`codex_hook_guard.py` + `codex_tool_guard.py`) into `~/.codex/hooks.json` (and cleans up any legacy `chatgpt_base_url` block in `~/.codex/config.toml`).
 - `pi`: Copies `connectors/pi/pii-shield.ts` to `~/.pi/agent/extensions/pii-shield.ts`.
 - Rollback anytime with `--rollback`.
 

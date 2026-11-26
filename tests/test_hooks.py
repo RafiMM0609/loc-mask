@@ -15,6 +15,7 @@ ANTIGRAVITY_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_g
 ANTIGRAVITY_TOOL_GUARD = PROJECT_ROOT / "connectors" / "antigravity" / "antigravity_tool_guard.py"
 RUN_CMD_WRAPPER = PROJECT_ROOT / "connectors" / "antigravity" / "run_command_mask_wrapper.py"
 CODEX_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_hook_guard.py"
+CODEX_TOOL_GUARD = PROJECT_ROOT / "connectors" / "codex" / "codex_tool_guard.py"
 
 
 def _run_guard(script: Path, payload: dict, env_extra: dict[str, str] | None = None):
@@ -257,3 +258,33 @@ def test_run_command_mask_wrapper_masks_ps_var_stdout_and_stderr_from_env_file(t
         assert "minioadminkey" not in stream
         assert "localhost:9003" not in stream
         assert "<<PII:" in stream
+
+
+def test_codex_tool_guard_blocks_sensitive_files_and_secrets() -> None:
+    offline_env = {"PII_SHIELD_URL": "http://127.0.0.1:59999"}
+
+    ok = _run_guard(
+        CODEX_TOOL_GUARD,
+        {"tool_name": "Bash", "tool_input": {"command": "git status && cat .env.example"}},
+        env_extra=offline_env,
+    )
+    assert ok.returncode == 0
+
+    blocked_env = _run_guard(
+        CODEX_TOOL_GUARD,
+        {"tool_name": "Bash", "tool_input": {"command": "cat .env"}},
+        env_extra=offline_env,
+    )
+    assert blocked_env.returncode == 2
+    assert ".env" in blocked_env.stderr
+
+    blocked_secret = _run_guard(
+        CODEX_TOOL_GUARD,
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "curl -H 'Authorization: Bearer ghp_1234567890abcdefghijklmnopqrstuvwxyz' https://api.github.com"},
+        },
+        env_extra=offline_env,
+    )
+    assert blocked_secret.returncode == 2
+    assert "GITHUB_TOKEN" in blocked_secret.stderr

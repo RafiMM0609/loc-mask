@@ -19,6 +19,8 @@ SHIELD_ROOT = Path(__file__).resolve().parent.parent
 ANTIGRAVITY_HOOKS = HOME / ".gemini" / "config" / "hooks.json"
 T3_ANTIGRAVITY_DIR = HOME / ".t3" / "userdata" / "providers" / "antigravity"
 CODEX_CONFIG = HOME / ".codex" / "config.toml"
+CODEX_HOOKS = HOME / ".codex" / "hooks.json"
+CODEX_HOOKS_EXAMPLE = SHIELD_ROOT / "connectors" / "codex" / "hooks.example.json"
 PI_EXT_DIR = HOME / ".pi" / "agent" / "extensions"
 PI_EXT_TARGET = PI_EXT_DIR / "pii-shield.ts"
 PI_EXT_SOURCE = SHIELD_ROOT / "connectors" / "pi" / "pii-shield.ts"
@@ -26,11 +28,6 @@ ANTIGRAVITY_EXAMPLE = SHIELD_ROOT / "connectors" / "antigravity" / "hooks.exampl
 
 CODEX_MARKER_START = "# >>> PII-SHIELD START >>>"
 CODEX_MARKER_END = "# <<< PII-SHIELD END <<<"
-CODEX_BLOCK = (
-    f"{CODEX_MARKER_START}\n"
-    'chatgpt_base_url = "http://127.0.0.1:8787/chatgpt-backend/"\n'
-    f"{CODEX_MARKER_END}\n"
-)
 
 
 def _backup(path: Path) -> Path | None:
@@ -66,19 +63,28 @@ def _is_antigravity_active(path: Path) -> bool:
         return False
 
 
+def _is_codex_hooks_active(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        raw = path.read_text(encoding="utf-8")
+        return "codex_hook_guard.py" in raw and "codex_tool_guard.py" in raw
+    except OSError:
+        return False
+
+
 def show_status() -> int:
     for target in _antigravity_hook_targets():
         label = "Antigravity" if target == ANTIGRAVITY_HOOKS else "Antigravity (T3)"
         state = "ACTIVE" if _is_antigravity_active(target) else "NOT INSTALLED"
         print(f"{label:<16} ({target}): {state}")
 
-    codex_installed = False
-    if CODEX_CONFIG.exists():
-        codex_installed = CODEX_MARKER_START in CODEX_CONFIG.read_text(encoding="utf-8")
-
+    codex_installed = _is_codex_hooks_active(CODEX_HOOKS)
     pi_installed = PI_EXT_TARGET.exists()
 
-    print(f"{'Codex CLI':<16} ({CODEX_CONFIG}): {'ACTIVE' if codex_installed else 'NOT INSTALLED'}")
+    print(f"{'Codex CLI':<16} ({CODEX_HOOKS}): {'ACTIVE' if codex_installed else 'NOT INSTALLED'}")
+    if CODEX_CONFIG.exists() and CODEX_MARKER_START in CODEX_CONFIG.read_text(encoding="utf-8"):
+        print(f"{'Codex (legacy)':<16} ({CODEX_CONFIG}): LEGACY PROXY BLOCK PRESENT")
     print(f"{'Pi dev CLI':<16} ({PI_EXT_TARGET}): {'ACTIVE' if pi_installed else 'NOT INSTALLED'}")
     return 0
 
@@ -123,21 +129,73 @@ def apply_antigravity(dry_run: bool) -> None:
         print(f"[OK] Antigravity hook terpasang di {target}" + (f" (backup: {bak})" if bak else ""))
 
 
-def apply_codex(dry_run: bool) -> None:
-    content = CODEX_CONFIG.read_text(encoding="utf-8") if CODEX_CONFIG.exists() else ""
-    if CODEX_MARKER_START in content:
-        print(f"[SKIP] Codex config sudah memiliki blok PII-Shield di {CODEX_CONFIG}")
-        return
+def _load_codex_hooks_entry() -> dict:
+    raw = CODEX_HOOKS_EXAMPLE.read_text(encoding="utf-8")
+    python_exe = _resolve_venv_python().as_posix()
+    shield_root = SHIELD_ROOT.as_posix()
+    resolved = (
+        raw.replace("~/pii-shield/.venv/bin/python", python_exe)
+        .replace("~/pii-shield/.venv/Scripts/python.exe", python_exe)
+        .replace("~/pii-shield", shield_root)
+    )
+    return json.loads(resolved)
 
-    updated = CODEX_BLOCK + "\n" + content if content else CODEX_BLOCK
+
+def _strip_legacy_codex_block(dry_run: bool) -> None:
+    if not CODEX_CONFIG.exists():
+        return
+    text = CODEX_CONFIG.read_text(encoding="utf-8")
+    if CODEX_MARKER_START not in text or CODEX_MARKER_END not in text:
+        return
     if dry_run:
-        print(f"[DRY-RUN] Akan menambahkan chatgpt_base_url ke bagian atas {CODEX_CONFIG}")
+        print(f"[DRY-RUN] Akan menghapus blok legacy chatgpt_base_url dari {CODEX_CONFIG}")
+        return
+    bak = _backup(CODEX_CONFIG)
+    start = text.index(CODEX_MARKER_START)
+    end = text.index(CODEX_MARKER_END) + len(CODEX_MARKER_END)
+    cleaned = (text[:start] + text[end:]).lstrip("\r\n")
+    CODEX_CONFIG.write_text(cleaned, encoding="utf-8")
+    print(f"[OK] Hapus blok legacy PII-Shield dari {CODEX_CONFIG}" + (f" (backup: {bak})" if bak else ""))
+
+
+def apply_codex(dry_run: bool) -> None:
+    _strip_legacy_codex_block(dry_run)
+
+    desired = _load_codex_hooks_entry()
+    existing: dict = {}
+    if CODEX_HOOKS.exists():
+        try:
+            existing = json.loads(CODEX_HOOKS.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            existing = {}
+
+    hooks_root = existing.get("hooks")
+    if not isinstance(hooks_root, dict):
+        hooks_root = {}
+
+    for event_name, desired_entries in desired.get("hooks", {}).items():
+        current_list = hooks_root.get(event_name)
+        if not isinstance(current_list, list):
+            current_list = []
+        # Replace any previous pii-shield hook entries for this event
+        filtered = [
+            entry
+            for entry in current_list
+            if "codex_hook_guard.py" not in json.dumps(entry)
+            and "codex_tool_guard.py" not in json.dumps(entry)
+        ]
+        hooks_root[event_name] = filtered + desired_entries
+
+    existing["hooks"] = hooks_root
+
+    if dry_run:
+        print(f"[DRY-RUN] Akan memasang Codex hooks (UserPromptSubmit + PreToolUse) di {CODEX_HOOKS}")
         return
 
-    CODEX_CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    bak = _backup(CODEX_CONFIG)
-    CODEX_CONFIG.write_text(updated, encoding="utf-8")
-    print(f"[OK] Codex proxy terpasang di {CODEX_CONFIG}" + (f" (backup: {bak})" if bak else ""))
+    CODEX_HOOKS.parent.mkdir(parents=True, exist_ok=True)
+    bak = _backup(CODEX_HOOKS)
+    CODEX_HOOKS.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    print(f"[OK] Codex hooks terpasang di {CODEX_HOOKS}" + (f" (backup: {bak})" if bak else ""))
 
 
 def apply_pi(dry_run: bool) -> None:
@@ -169,19 +227,23 @@ def rollback_all() -> None:
                     target.unlink()
                 print(f"[OK] Hapus pii-shield-guard dari {target}")
 
-    if CODEX_CONFIG.exists():
-        bak = _latest_backup(CODEX_CONFIG)
+    if CODEX_HOOKS.exists():
+        bak = _latest_backup(CODEX_HOOKS)
         if bak:
-            shutil.copy2(bak, CODEX_CONFIG)
-            print(f"[OK] Rollback Codex dari {bak}")
+            shutil.copy2(bak, CODEX_HOOKS)
+            print(f"[OK] Rollback Codex hooks dari {bak}")
         else:
-            text = CODEX_CONFIG.read_text(encoding="utf-8")
-            if CODEX_MARKER_START in text:
-                start = text.index(CODEX_MARKER_START)
-                end = text.index(CODEX_MARKER_END) + len(CODEX_MARKER_END)
-                cleaned = (text[:start] + text[end:]).lstrip("\r\n")
-                CODEX_CONFIG.write_text(cleaned, encoding="utf-8")
-                print(f"[OK] Hapus blok PII-Shield dari {CODEX_CONFIG}")
+            CODEX_HOOKS.unlink()
+            print(f"[OK] Hapus {CODEX_HOOKS}")
+
+    if CODEX_CONFIG.exists():
+        text = CODEX_CONFIG.read_text(encoding="utf-8")
+        if CODEX_MARKER_START in text and CODEX_MARKER_END in text:
+            start = text.index(CODEX_MARKER_START)
+            end = text.index(CODEX_MARKER_END) + len(CODEX_MARKER_END)
+            cleaned = (text[:start] + text[end:]).lstrip("\r\n")
+            CODEX_CONFIG.write_text(cleaned, encoding="utf-8")
+            print(f"[OK] Hapus blok legacy PII-Shield dari {CODEX_CONFIG}")
 
     if PI_EXT_TARGET.exists():
         PI_EXT_TARGET.unlink()
